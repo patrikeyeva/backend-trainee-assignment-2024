@@ -1,0 +1,118 @@
+package tests
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"testing"
+	"time"
+)
+
+func TestE2E(t *testing.T) {
+	URL := "http://localhost:8080"
+
+	type args struct {
+		BannerID        int                `json:"banner_id"`
+		TagId           int                `json:"tag_id"`
+		TagIds          []int              `json:"tag_ids"`
+		FeatureID       int                `json:"feature_id"`
+		Content         ResponseUserBanner `json:"content"`
+		IsActive        bool               `json:"is_active"`
+		CreatedAt       time.Time          `json:"created_at"`
+		UpdatedAt       time.Time          `json:"updated_at"`
+		UseLastRevision bool               `json:"use_last_revision"`
+		Token           string             `json:"token"`
+	}
+	tests := []struct {
+		name           string
+		prepare        func(args) (*http.Response, error)
+		args           args
+		wantStatusCode int
+		needBody       bool
+		wantBody       string
+	}{
+		{
+			name: "Get bad banner",
+			prepare: func(args args) (*http.Response, error) {
+				return queryGET(t, URL, args.TagId, args.FeatureID, args.UseLastRevision, args.Token)
+			},
+			args:           args{TagId: 1, FeatureID: 1, UseLastRevision: false, Token: "user_token"},
+			wantStatusCode: http.StatusNotFound,
+			needBody:       false,
+			wantBody:       "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := tt.prepare(tt.args)
+			if err != nil {
+				t.Fatalf("Failed while query: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != tt.wantStatusCode {
+				t.Errorf("test: %v, StatusCode got = %v, want %v", tt.name, resp.StatusCode, tt.wantStatusCode)
+			}
+			if tt.needBody {
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					t.Errorf("test: %v, Failed while read body: %v", tt.name, err)
+				}
+
+				if string(body) != tt.wantBody {
+					t.Errorf("test: %v, got body = %v, want %v", tt.name, string(body), tt.wantBody)
+				}
+			}
+		})
+	}
+
+}
+
+func GetUserBanner(t *testing.T, URL string, tag_id, feature_id int, use_last_revision bool, token string) (resp *http.Response, err error) {
+	// Инициализируем URL с базовым адресом
+	u, err := url.Parse(URL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse base URL: %v", err)
+	}
+
+	// Добавляем путь "/user_banner" к URL
+	u.Path += "/user_banner"
+
+	// Формируем query parameters
+	q := u.Query()
+
+	// Добавляем tag_id, если он не пустой и не равен -1
+	if tagID != -1 {
+		q.Set("tag_id", fmt.Sprintf("%d", tagID))
+	}
+
+	// Добавляем feature_id, если он не пустой и не равен -1
+	if featureID != -1 {
+		q.Set("feature_id", fmt.Sprintf("%d", featureID))
+	}
+
+	// Добавляем use_last_revision, если он true
+	if useLastRevision {
+		q.Set("use_last_revision", "true")
+	}
+
+	// Добавляем token, если он не пустой
+	if token != "" {
+		q.Set("token", token)
+	}
+
+	// Устанавливаем новые параметры запроса обратно в URL
+	u.RawQuery = q.Encode()
+
+	// Формируем итоговый URL в виде строки
+	finalURL := u.String()
+
+	// Делаем HTTP GET запрос к итоговому URL
+	resp, err = http.Get(finalURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make GET request: %v", err)
+	}
+
+	return resp, nil
+}
